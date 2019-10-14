@@ -1,0 +1,3 @@
+[submodule "lib/mqtt-wrapper"]
+	path = lib/mqtt-wrapper
+	url = git@github.com:i3detroit/mqtt-wrapper.git
