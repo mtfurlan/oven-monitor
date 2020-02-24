@@ -8,3 +8,9 @@ d1 mini + oled + k type thermocouple to track oven temperature
 ## Code features
 * rolling average for ADC
 * The rest is thermostat code
+
+## BOM
+* adafruit AD8495 Breakout: https://www.adafruit.com/product/1778
+* K type thermocouple
+* d1 mini
+* oled display i2c SSD1306 128X64

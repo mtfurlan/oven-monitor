@@ -1,50 +1,71 @@
-#include "oven-monitor.h"
+/**
+ * This works mostly by global magics.
+ * We have an array of ADC readings, an index, and a running sum.
+ * This allows window averaging.
+ *
+ * There is also a global float temp, reportedTemp, and displayedTemp.
+ * temp is the last known temperature, the other two are for figuring out when
+ * to update the display or MQTT.
+ *
+ * Variables you might want to fuck with:
+ *   STATUS_INTERVAL: minimum mqtt update frequency (ms)
+ *   TEMP_REPORT_SIZE: tempreature change upon which to update MQTT (c).
+ *   OVEN_COOL_THRESH: don't turn on the display below this many degrees C
+ *   MQTT_ENABLED: comment out if you don't want mqtt
+ **/
+//comment out if not using MQTT
+#define MQTT_ENABLED
 
-#include <Arduino.h>
-#include <U8g2lib.h>
-#include <mqtt-wrapper.h>
-
-#include "pins.h"
-
-// how often to report temp over mqtt
-uint32_t nextStatus = 0UL;
-uint32_t statusInterval = 60000UL;
-
-//How much of a change to report over mqtt
-int8_t reportChangeSize = 5;
-
-//how often to read the ADC
-uint32_t nextRead = 0UL;
-uint32_t readInterval = 10UL;
+//Maximum amount of time between MQTT updates (ms)
+#define STATUS_INTERVAL 60000UL
+//how big a temperature swing to report to MQTT
+#define TEMP_REPORT_SIZE 5
 
 //Don't display if temp is below this
 #define OVEN_COOL_THRESH 70
 
+//how big the thermocouple averaging window is
+#define ADC_NUM_READINGS 50
+
+//how fast to poll the ADC
+#define ADC_INTERVAL 10
+
+
+#include "oven-monitor.h"
+#include "pins.h"
+
+#include <Arduino.h>
+#include <U8g2lib.h>
+
+#ifdef MQTT_ENABLED
+#include <mqtt-wrapper.h>
+
+uint32_t nextStatus = 0UL;
+float reportedTemp = 0;
+bool mqttDirty;
+struct mqtt_wrapper_options mqtt_options;
+enum ConnState connState;
+char topicBuf[1024];
+#endif
+
+uint32_t nextRead = 0UL;
+
 //For the ADC, we want some smoothing
 //So we average the past ADC_NUM_READINGS readings
 //adc_init says if we've read enough readings yet
-#define ADC_NUM_READINGS 50
 int adc_readings[ADC_NUM_READINGS];
 int adc_sum = 0;
 int adc_index = 0;
 bool adc_init = false;
 
-//Track temp, and what temp is displayed/sent over mqtt
 float temp = 0;
-float reportedTemp = 0;
 float displayedTemp = 0;
 
-//When to update display or mqtt
 bool displayDirty;
-bool mqttDirty;
 
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE, /* clock=*/ SCL_PIN, /* data=*/ SDA_PIN);
 
-
-struct mqtt_wrapper_options mqtt_options;
-enum ConnState connState;
 char buf[1024];
-char topicBuf[1024];
 
 void display() {
   displayedTemp = temp;
@@ -55,11 +76,15 @@ void display() {
   u8g2.clearBuffer();
   u8g2.setFont(u8g2_font_inr38_mf);
 
-  //display current temp
+  //put temp in buf
   sprintf(buf, "%.0fC", temp);
-  //dtostrf(temp, 0, 0, buf);
 
+  //display buf
   u8g2.drawStr(0, 50, buf);
+
+
+#ifdef MQTT_ENABLED
+  //show mqtt connected status
   u8g2.setFont(u8g2_font_unifont_t_symbols);
   // https://github.com/olikraus/u8g2/wiki/fntgrpunifont
   // bottom of page
@@ -74,10 +99,12 @@ void display() {
       u8g2.drawGlyph(119, 10, 0x25C7);	/* dec 9671/hex 25C7 empty diamond */
       break;
   }
+#endif
   u8g2.sendBuffer();
   u8g2.setPowerSave(0);
 }
 
+//read ADC into adc_readings, pudate adc_sum/adc_init
 void readADC() {
   adc_sum -= adc_readings[adc_index];
   adc_readings[adc_index] = analogRead(THERMOCOUPLE_PIN);
@@ -89,6 +116,8 @@ void readADC() {
     adc_init = true;
   }
 }
+
+//calculate temp from adc_sum; update temp and display/mqtt dirty
 void calculateTemp() {
 #define AREF 3.2
 #define ADC_RESOLUTION 10
@@ -102,14 +131,18 @@ void calculateTemp() {
   //sprintf(buf, "t: %f, v: %f, raw: %f\n", temp, voltage, ((float)adc_sum)/ADC_NUM_READINGS);
   //Serial.print(buf);
 
-  if(abs(temp-reportedTemp) > reportChangeSize) {
+#ifdef MQTT_ENABLED
+  if(abs(temp-reportedTemp) > TEMP_REPORT_SIZE) {
     mqttDirty = true;
   }
+#endif
+
   if(abs(temp-displayedTemp) > 0) {
     displayDirty = true;
   }
 }
 
+#ifdef MQTT_ENABLED
 void reportTelemetry(PubSubClient *client) {
   sprintf(topicBuf, "tele/%s/temp", TOPIC);
   //sprintf(buf, "%f", temp);
@@ -137,12 +170,12 @@ void connectSuccess(PubSubClient* client, char* ip) {
 
 void connectedLoop(PubSubClient* client) {
   if(mqttDirty || (long)( millis() - nextStatus ) >= 0) {
-    nextStatus = millis() + statusInterval;
+    nextStatus = millis() + STATUS_INTERVAL;
     mqttDirty = false;
     reportTelemetry(client);
   }
 }
-
+#endif
 
 void setup() {
   Serial.begin(115200);
@@ -155,6 +188,7 @@ void setup() {
   u8g2.clearBuffer();
   u8g2.sendBuffer();
 
+#ifdef MQTT_ENABLED
   // --- MQTT ---
   mqtt_options.connectedLoop = connectedLoop;
   mqtt_options.callback = callback;
@@ -168,6 +202,7 @@ void setup() {
   mqtt_options.fullTopic = TOPIC;
   mqtt_options.debug_print = true;
   setup_mqtt(&mqtt_options);
+#endif
 
   //empty adc reading array
   for(int i = 0; i < ADC_NUM_READINGS; ++i) {
@@ -177,9 +212,11 @@ void setup() {
 
 
 void loop() {
+#ifdef MQTT_ENABLED
   loop_mqtt();
+#endif
   if( (long)( millis() - nextRead ) >= 0) {
-    nextRead = millis() + readInterval;
+    nextRead = millis() + ADC_INTERVAL;
     readADC();
     calculateTemp();
   }
