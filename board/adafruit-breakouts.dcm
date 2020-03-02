@@ -1,0 +1,21 @@
+EESchema-DOCLIB  Version 2.0
+#
+$CMP AD8495-adafruit
+D adafruit AD8495 breakout
+K ad8495, adafruit
+F ~
+$ENDCMP
+#
+$CMP LIS3DH-adafruit
+D adafruit lis3dh breakout
+K lis3dh, adafruit
+F ~
+$ENDCMP
+#
+$CMP i2c_oled
+D i2c oled display
+K i2c, oled
+F ~
+$ENDCMP
+#
+#End Doc Library

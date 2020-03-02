@@ -1,0 +1,3 @@
+(fp_lib_table
+  (lib (name adafruit-breakouts)(type KiCad)(uri ${KIPRJMOD}/adafruit-breakouts.pretty)(options "")(descr ""))
+)

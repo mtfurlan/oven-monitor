@@ -1,0 +1,3 @@
+(sym_lib_table
+  (lib (name adafruit-breakouts)(type Legacy)(uri ${KIPRJMOD}/adafruit-breakouts.lib)(options "")(descr ""))
+)
